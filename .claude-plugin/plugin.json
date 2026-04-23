@@ -4,6 +4,6 @@
   "description": "Inspect and reclaim background processes that Claude Code's Bash tool leaves behind. Session-scoped tracking, surgical kill, orphan detection.",
   "author": { "name": "gorkemuz" },
   "license": "MIT",
-  "homepage": "https://github.com/gorkemuz/claude-processes",
-  "repository": { "type": "git", "url": "https://github.com/gorkemuz/claude-processes" }
+  "homepage": "https://github.com/mgorkemuz/claude-processes",
+  "repository": { "type": "git", "url": "https://github.com/mgorkemuz/claude-processes" }
 }

@@ -99,19 +99,29 @@ cc_port_conflict_check() {
 }
 
 # cc_emit_context <event_name>
-# Read lines from stdin, wrap them into a Claude Code hook JSON response
-# keyed at hookSpecificOutput.additionalContext. The event_name must match
-# the firing hook (PreToolUse, PostToolUse, UserPromptSubmit, Stop, ...).
-# Falls back to plain passthrough if jq is missing.
+# Wrap stdin into the correct Claude Code hook JSON shape for <event_name>.
+# Schema varies by event:
+#   PostToolUse / UserPromptSubmit → hookSpecificOutput.additionalContext
+#     (string goes INTO the model's conversation context — Claude can react)
+#   Stop / PreToolUse / others     → systemMessage (top-level)
+#     (shown to the user, does NOT flow into model context; the other
+#     schema fields on these events are for approve/deny/permission flow)
+# Plain passthrough if jq is missing.
 cc_emit_context() {
   local event_name="${1:-PostToolUse}"
   local content; content=$(cat)
   [ -z "$content" ] && return 0
-  if command -v jq >/dev/null 2>&1; then
-    jq -n --arg c "$content" --arg e "$event_name" \
-      '{hookSpecificOutput: {hookEventName: $e, additionalContext: $c}}' 2>/dev/null \
-      || echo "$content"
-  else
-    echo "$content"
-  fi
+  command -v jq >/dev/null 2>&1 || { echo "$content"; return 0; }
+
+  case "$event_name" in
+    PostToolUse|UserPromptSubmit|PostToolBatch)
+      jq -n --arg c "$content" --arg e "$event_name" \
+        '{hookSpecificOutput: {hookEventName: $e, additionalContext: $c}}' 2>/dev/null \
+        || echo "$content"
+      ;;
+    *)
+      jq -n --arg c "$content" '{systemMessage: $c}' 2>/dev/null \
+        || echo "$content"
+      ;;
+  esac
 }

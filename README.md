@@ -1,18 +1,16 @@
 # shepherd
 
-> Inspect and reclaim the background processes Claude Code's Bash tool leaves running.
+> Track, preserve, and clean up the background processes Claude Code's Bash tool leaves running.
 
-A Claude Code plugin. Tracks `npm run dev`, `next dev`, `vitest --watch`, and every other long-running process the agent spawns. Surfaces them per session, kills them surgically, stashes them to free RAM, and nudges Claude when things grow out of control.
+A Claude Code plugin. It watches every `npm run dev`, `next dev`, `vitest --watch`, or long-running command Claude starts in the background, remembers which session spawned it, and gives you single-line controls to stash it, kill it, or bring it back later. When Claude crashes and leaves processes behind, shepherd cleans them automatically on the next launch.
 
 ## The problem
 
 Claude Code runs background commands through its Bash tool. When a session ends — `/clear`, a closed terminal, a crashed Claude — those children don't always die. On macOS they reparent to `launchd` and keep running: holding ports, eating RAM, accumulating across days. An orphaned `next dev` can grow past 8 GB.
 
-Upstream issues confirming the problem: [anthropics/claude-code#43944](https://github.com/anthropics/claude-code/issues/43944), [#33947](https://github.com/anthropics/claude-code/issues/33947), [#33979](https://github.com/anthropics/claude-code/issues/33979), [#29011](https://github.com/anthropics/claude-code/issues/29011), [#22978](https://github.com/anthropics/claude-code/issues/22978), [#7069](https://github.com/anthropics/claude-code/issues/7069). No official fix shipped in 2+ years. This is the gap shepherd fills.
+Upstream issues tracking this: [anthropics/claude-code#43944](https://github.com/anthropics/claude-code/issues/43944), [#33947](https://github.com/anthropics/claude-code/issues/33947), [#33979](https://github.com/anthropics/claude-code/issues/33979), [#29011](https://github.com/anthropics/claude-code/issues/29011), [#22978](https://github.com/anthropics/claude-code/issues/22978), [#7069](https://github.com/anthropics/claude-code/issues/7069). No official fix in 2+ years. shepherd fills the gap.
 
 ## Install
-
-As a Claude Code plugin (recommended):
 
 ```
 /plugin install shepherd
@@ -21,57 +19,71 @@ As a Claude Code plugin (recommended):
 From a local clone for development:
 
 ```sh
-claude --plugin-dir /path/to/shepherd
+claude --plugin-dir /path/to/claude-code-shepherd
 ```
 
 After any plugin update: `/reload-plugins`.
 
 Requires `jq`. macOS and Linux supported.
 
-## Features
+## How it actually helps
 
-1. **Visibility** — `shepherd list` groups tracked processes by Claude session, with ports, RSS, uptime, FD count, and a friendly dev-server label (`Next.js :3000`).
-2. **Control** — `kill <pid> | --session <id> | --orphans` with a SIGTERM → grace → SIGKILL cascade. Surgical: killing session A never touches session B.
-3. **Stash / Resume** — snapshot a session's background processes (command + cwd + allowlisted env) and kill them to free RAM; respawn later in the original cwd with a single command.
-4. **Awareness** — PostToolUse RAM-threshold nudges (default 2 GB; rate-limited) and PreToolUse port-conflict warnings go back to Claude as `additionalContext` so the agent can reason about them.
-5. **Cleanup + digest** — `cleanup --older-than 24h` / `--over-ram 2GB` with TTY confirmation and `--dry-run`; opt-in `digest` aggregates activity over the last N days.
+- **Only tracks what Claude spawned.** Uses the Bash tool's shell-snapshot signature to tell Claude-spawned processes apart from processes you started yourself. Kill commands are surgical — they can't touch things outside Claude's tree.
+- **Per-session grouping.** Multiple Claude sessions (tmux teammates, background agents) each get their own tracked list. `kill --session <id>` never spills into another session.
+- **Orphan detection.** Processes whose originating Claude is dead show up under their own block in `list`.
+- **Auto-clean on next launch.** If Claude crashes (SIGKILL, terminal closed hard, OOM), the `SessionStart` hook on the next Claude launch wipes orphans from the crashed session. Default **on** — orphans are residue by definition. Concurrent sessions are safe: their Claude pid is still alive, so they're not orphans.
+- **Stash/unstash.** Snapshot a dev server (command + cwd + safe env), kill it to free RAM, respawn later in the original cwd with one command. Like "pause" across a `/clear`.
+- **Port-conflict warnings.** Before a Bash command with `next dev` / `vite` / `uvicorn`, shepherd checks if the port is already held by a tracked process and nudges Claude via `systemMessage`.
+- **RAM threshold nudges.** When a tracked process crosses 2 GB, shepherd emits `additionalContext` so Claude can suggest stashing in-conversation.
 
-## Commands
+## Slash commands
 
-| Command | What it does |
-|---|---|
-| `shepherd list [--session <id>] [--orphans]` | Tracked processes, grouped. |
-| `shepherd status` | One-line summary. |
-| `shepherd kill <pid \| --session <id> \| --orphans \| --all> [--grace <sec>]` | Terminate a tree; logs to history. |
-| `shepherd stash <pid \| --session <id> \| --current>` | Snapshot + kill. Frees RAM and ports. |
-| `shepherd stash list` | Show stashes with cwd, command, timestamp. |
-| `shepherd unstash <stash_id> [--attach]` | Respawn in the original cwd. `--attach` registers the new pid with the current session. |
-| `shepherd cleanup --older-than <dur> [--over-ram <size>] [--dry-run]` | Kill matching tracked processes after TTY confirm. |
-| `shepherd digest [--since <dur>]` | Aggregate history.jsonl (opt-in). |
-| `shepherd sessions` | List tracked session IDs. |
-| `shepherd version` | Print version. |
+Invoke from inside Claude with `/shepherd:<name>` (TAB-completes after `/shep`).
 
-Each subcommand supports `--help`.
+| Command | What it does | Default (no args) |
+|---|---|---|
+| `/shepherd:processes` | Tracked processes grouped by session, with ports, RAM, uptime, FD count, dev-server label. | Show everything (active + orphans). |
+| `/shepherd:status` | One-line count: sessions, processes, orphans. | — |
+| `/shepherd:stash` | Snapshot + kill background processes. Frees RAM and ports. | `--current` — this session's processes. |
+| `/shepherd:stashes` | Table of saved stash snapshots. | — |
+| `/shepherd:unstash` | Respawn a stash in its original cwd. | `--latest --attach` — most recent stash, track it in this session. |
+| `/shepherd:rm` | Delete a stash without respawning. | `--latest` |
+| `/shepherd:kill` | Terminate a process tree. | Kill the most recently-spawned tracked tree. |
+| `/shepherd:cleanup` | Kill processes older than a duration or using too much RAM. | `--older-than 24h --dry-run` — safe preview. |
+| `/shepherd:adopt <pid>` | Register an externally-spawned pid as tracked (previous Claude, terminal-started, etc). | pid required |
 
-## Slash commands (from inside Claude)
+All commands accept arguments that get forwarded to the CLI. E.g. `/shepherd:kill --all`, `/shepherd:stash --session <id>`, `/shepherd:cleanup --over-ram 2GB`.
 
-Invoke with the namespaced form `/shepherd:<name>` (TAB-completes after `/claude-p`).
+## Typical flows
 
-| Command | Behavior |
-|---|---|
-| `/shepherd:processes [args]` | Run `list`, narrate notable findings. |
-| `/shepherd:status`           | One-line sessions/processes/orphans count. |
-| `/shepherd:stash [args]`     | Default `--current`. Report what was stashed + RAM freed. |
-| `/shepherd:stashes`          | Show all saved snapshots (table). |
-| `/shepherd:unstash [stash_id]`| Default `--latest --attach`. Respawn in original cwd, attach to current session. |
-| `/shepherd:adopt <pid> [label]`| Register an externally-spawned pid as tracked (survived a Claude restart, started outside Claude, etc). |
-| `/shepherd:rm [args]`        | Default `--latest`. Delete a stash without resuming. |
-| `/shepherd:kill [args]`      | Terminate by pid / `--session` / `--orphans`. |
-| `/shepherd:cleanup [args]`   | Default `--dry-run --older-than 24h`. |
+Switching projects without losing your dev server:
+
+```
+/shepherd:stash         → snapshot npm run dev + kill it, port 3000 freed
+/clear                  → new Claude conversation
+…                       → work on something else
+/shepherd:unstash       → dev server respawns in the original project
+```
+
+After a Claude crash, next launch:
+
+```
+shepherd auto-cleanup: killed 2 orphan tree(s) from previous session(s):
+  pid 39987  next-server (v16.1.0)  (session 214bd4)
+  pid 39990  node ...               (session 214bd4)
+```
+
+Investigating RAM:
+
+```
+/shepherd:processes                            → see what's running, what's heavy
+/shepherd:kill --session c1b264                → surgical — touches only this session
+/shepherd:cleanup --over-ram 2GB               → dry-run preview of fat processes
+```
 
 ## Config
 
-`~/.claude/.shepherd/config.json` — optional, defaults in effect if missing.
+`~/.claude/.shepherd/config.json` — optional, defaults used when missing.
 
 ```json
 {
@@ -86,73 +98,66 @@ Invoke with the namespaced form `/shepherd:<name>` (TAB-completes after `/claude
     "env_allowlist": ["PATH", "NODE_ENV", "PORT", "NODE_OPTIONS"],
     "env_allowlist_prefix": ["X_", "APP_"]
   },
-  "kill": { "grace_seconds": 3, "safe_pgid_leader": false },
+  "kill": {
+    "grace_seconds": 3,
+    "safe_pgid_leader": false,
+    "auto_orphans_on_session_start": true
+  },
   "notifications": { "macos_osascript": false },
   "history": { "max_bytes": 1048576 }
 }
 ```
 
-Edit with `jq` or by hand; no restart needed.
+Edit with `jq` or by hand; no restart needed. The commonly-flipped knobs:
+
+- `kill.auto_orphans_on_session_start` — set to `false` if you deliberately leave processes running across Claude restarts and don't want them killed on the next launch.
+- `awareness.ram_threshold_kb` — threshold for in-conversation RAM nudges. Default 2 GB.
+- `digest.enabled` — set to `true` to enable the weekly activity digest.
 
 ## How it works
 
 Claude Code hooks drive the event stream. The plugin registers:
 
-- **SessionStart** → record `session_id`, `cwd`, `claude_pid` in `~/.claude/.shepherd/<id>.json`.
-- **PreToolUse** (Bash) → parse the incoming command for port-binding patterns; warn if another tracked session already holds one.
-- **PostToolUse** (Bash) → walk the descendants of `claude_pid`, record any new persistent processes; run the RAM-threshold check.
-- **Stop** → print a summary of still-running tracked processes with the exact kill command.
+- **SessionStart** — record session_id, cwd, and the Claude pid in `~/.claude/.shepherd/<id>.json`. If `auto_orphans_on_session_start` is on, sweep orphans from previously-crashed sessions.
+- **PreToolUse** (matcher `Bash`) — parse the incoming command for port-binding patterns; warn if another tracked session already holds one.
+- **PostToolUse** (matcher `Bash`) — walk direct children of the Claude pid whose argv carries the shell-snapshot signature, record them + their subtree. Run the RAM-threshold check.
+- **UserPromptSubmit** — if the prompt looks like `/clear` / "start fresh", warn Claude about still-running tracked processes so it can offer to stash them.
+- **Stop** — at turn end, surface a summary of what's still running and the exact command to stop or stash it.
 
-`list` intersects tracked PIDs with live `ps` output and walks each tracked PID's descendants, so it finds children the hook never saw directly (like `next-server` forked by `next dev`).
+`list` intersects tracked pids with live `ps` output and walks descendants, so it finds children the hook never saw directly (like `next-server` forked by `next dev`).
 
 `kill` sends SIGTERM to the tree deepest-first, waits up to `kill.grace_seconds`, then SIGKILLs survivors.
 
-`stash` reads the tracked command + cwd, captures allowlisted env vars (`ps -wwE` on macOS — may return `{}` due to recent hardening, falls back to inheriting current shell env; `/proc/<pid>/environ` on Linux), writes a snapshot to `~/.claude/.shepherd/stashed/<id>.json`, then kills. `unstash` respawns via `( ... & exec env -i ... nohup bash -c ... )` inside the original cwd.
-
-Awareness hooks emit `{"hookSpecificOutput": {"additionalContext": "..."}}` so Claude sees the warnings in conversation context, not just on stderr.
+`stash` reads the command + cwd, captures allowlisted env vars (`ps -wwE` on macOS — returns `{}` on hardened macOS; `/proc/<pid>/environ` on Linux), writes a snapshot, then kills. `unstash` respawns via `( ... & exec env -i ... nohup bash -c ... )` inside the original cwd and re-attaches the new pid to the current session.
 
 ## Relationship to cc-reaper
 
-[theQuert/cc-reaper](https://github.com/theQuert/cc-reaper) solves a **different** problem: it cleans up Claude's own internal spawns (MCP servers, subagents). shepherd targets the processes *you* told Claude to start in the background (`run_in_background: true`). They're safe to run side-by-side:
+[theQuert/cc-reaper](https://github.com/theQuert/cc-reaper) solves a different problem: it cleans up Claude's own internal spawns (MCP servers, subagents). shepherd targets the processes *you* told Claude to start in the background. Safe to run side by side.
 
 | | cc-reaper | shepherd |
 |---|---|---|
-| Target | Claude's MCP/subagent leaks | User's backgrounded commands |
+| Target | Claude's MCP / subagent leaks | User's backgrounded commands |
 | Detection | PGID + `stream-json` pattern | Shell-snapshot signature + tracked state |
 | Surgical per-session kill | No | Yes |
 | Port / RAM / FD surfacing | Partial | Yes |
 | Stash / resume | No | Yes |
+| Auto-clean on next launch | LaunchAgent every 10 min | SessionStart hook |
 
 Borrowed from cc-reaper with gratitude: the FD count, the TTY-filter orphan heuristic, the PGID-leader safety gate (opt-in via `config.kill.safe_pgid_leader`).
-
-## Upgrading from v0.1.0
-
-v0.1.0 was a shell-mode install (`./install.sh`). v0.2.0+ is a plugin. To migrate:
-
-```sh
-./uninstall.sh                    # removes ~/.local/bin/shepherd, hook scripts, settings.json entries
-/plugin install shepherd
-```
-
-## Uninstall
-
-Plugin users: `/plugin uninstall shepherd`.
-
-Legacy shell users: `./uninstall.sh` — clears the state dir unless you pass `--keep-state`.
 
 ## Testing
 
 ```sh
-./test/test-detect.sh
-./test/test-tree.sh
-./test/test-plugin-install.sh
-./test/test-config.sh
-./test/test-stash.sh
-./test/test-awareness.sh
-./test/test-cleanup.sh
+for t in test/test-*.sh; do $t; done
 ```
 
-All tests spawn synthetic processes and verify against a sandbox `HOME`. Run `for t in test/*.sh; do $t; done` to regress everything in ~10 seconds.
+All seven tests spawn synthetic processes against a sandbox `HOME`, covering detection, tree walk, stash/unstash, awareness (port parser + RAM threshold), cleanup + digest parsers, and plugin manifest validation. Regresses in ~10 seconds.
+
+## Uninstall
+
+```
+/plugin uninstall shepherd
+```
 
 ## License
 

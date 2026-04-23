@@ -116,6 +116,24 @@ cc_session_get() {
   [ -f "$f" ] && cat "$f"
 }
 
+# cc_session_live_pids <session_id>
+# Union of tracked wrappers + tracked child PIDs + each's descendants,
+# filtered to those currently alive. Deduplicated. Requires tree.sh.
+cc_session_live_pids() {
+  local id="$1"
+  local roots
+  roots=$(cc_session_all_pids "$id")
+  [ -z "$roots" ] && return 0
+  {
+    local p
+    while IFS= read -r p; do
+      [ -z "$p" ] && continue
+      if cc_is_alive "$p"; then echo "$p"; fi
+      cc_descendants "$p"
+    done <<< "$roots"
+  } | awk 'NF && !seen[$0]++'
+}
+
 # cc_session_all_pids <session_id>
 # Echo every tracked PID for a session — both wrapper PIDs and child PIDs —
 # one per line. Used by `kill --session`.

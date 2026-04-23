@@ -60,6 +60,10 @@ CC_ROOT=$(cc_find_root) || {
 . "$CC_ROOT/lib/history.sh"
 # shellcheck source=/dev/null
 . "$CC_ROOT/lib/stash.sh"
+# shellcheck source=/dev/null
+. "$CC_ROOT/lib/portparse.sh"
+# shellcheck source=/dev/null
+. "$CC_ROOT/lib/awareness.sh"
 
 # ---- helpers ----------------------------------------------------------------
 
@@ -67,24 +71,7 @@ cc_short_id() {
   # First 6 chars of a session id — readable in output.
   printf '%s' "${1:0:6}"
 }
-
-# Collect: for a given session, every alive PID (union of tracked wrappers,
-# tracked child PIDs, and the descendants of each). Output one PID per line,
-# deduplicated.
-cc_session_live_pids() {
-  local id="$1"
-  local roots
-  roots=$(cc_session_all_pids "$id")
-  [ -z "$roots" ] && return 0
-  {
-    local p
-    while IFS= read -r p; do
-      [ -z "$p" ] && continue
-      if cc_is_alive "$p"; then echo "$p"; fi
-      cc_descendants "$p"
-    done <<< "$roots"
-  } | awk 'NF && !seen[$0]++'
-}
+# cc_session_live_pids now lives in lib/track.sh (needed by lib/awareness.sh).
 
 # Shorter printer used by `list` — one indented line per process.
 cc_print_process_line() {
@@ -470,9 +457,10 @@ cmd_hook() {
   local sub="${1:-}"; [ $# -gt 0 ] && shift
   case "$sub" in
     session-start) hook_session_start "$@" ;;
+    pre-tool-use)  hook_pre_tool_use  "$@" ;;
     post-tool-use) hook_post_tool_use "$@" ;;
-    stop)          hook_stop "$@" ;;
-    '') echo "claude-clean hook: subcommand required (session-start|post-tool-use|stop)" >&2; return 2 ;;
+    stop)          hook_stop          "$@" ;;
+    '') echo "claude-clean hook: subcommand required (session-start|pre-tool-use|post-tool-use|stop)" >&2; return 2 ;;
     *) echo "claude-clean hook: unknown sub: $sub" >&2; return 2 ;;
   esac
 }
@@ -499,6 +487,23 @@ hook_session_start() {
   [ -z "$session_id" ] && return 0
   # Our PPID is the Claude TUI process.
   cc_session_init "$session_id" "$PPID" "$cwd" 2>/dev/null || true
+  return 0
+}
+
+hook_pre_tool_use() {
+  cc_have_jq || return 0
+  local event; event=$(cc_read_event)
+  [ -z "$event" ] && return 0
+  local tool_name command
+  tool_name=$(jq -r '.tool_name // empty' <<< "$event" 2>/dev/null)
+  [ -n "$tool_name" ] && [ "$tool_name" != "Bash" ] && return 0
+  command=$(jq -r '.tool_input.command // ""' <<< "$event" 2>/dev/null)
+  [ -z "$command" ] && return 0
+
+  local warnings; warnings=$(cc_port_conflict_check "$command" 2>/dev/null | awk 'NF')
+  if [ -n "$warnings" ]; then
+    printf '%s\n' "$warnings" | cc_emit_context
+  fi
   return 0
 }
 
@@ -546,6 +551,13 @@ hook_post_tool_use() {
     cc_session_add_spawn "$session_id" "$kid" "$command" "" 2>/dev/null || true
     cc_history_append spawned "$session_id" "$kid" "$command" "" "" 2>/dev/null || true
   done < <(cc_descendants "$claude_pid")
+
+  # Awareness: RAM-threshold check, emit contextual nudge if any tracked pid
+  # just crossed the threshold. Rate-limited per pid.
+  local ram_warnings; ram_warnings=$(cc_ram_threshold_check "$session_id" 2>/dev/null | awk 'NF')
+  if [ -n "$ram_warnings" ]; then
+    printf '%s\n' "$ram_warnings" | cc_emit_context
+  fi
 
   return 0
 }

@@ -8,6 +8,14 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/on-pre-tool-use.sh" }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Bash",

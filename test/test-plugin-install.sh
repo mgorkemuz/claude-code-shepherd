@@ -45,16 +45,18 @@ ok "manifest.version '$version' looks like semver"
 
 jq -e '.hooks' "$HOOKS" >/dev/null || fail "hooks.json has no .hooks root key"
 
-for event in SessionStart PostToolUse Stop; do
+for event in SessionStart PreToolUse PostToolUse Stop; do
   jq -e --arg e "$event" '.hooks[$e] | type == "array" and length > 0' "$HOOKS" >/dev/null \
     || fail "hooks.json missing or empty entry for $event"
 done
-ok "hooks.json registers SessionStart, PostToolUse, Stop"
+ok "hooks.json registers SessionStart, PreToolUse, PostToolUse, Stop"
 
-# PostToolUse should have a Bash matcher
-jq -e '.hooks.PostToolUse[] | select(.matcher == "Bash")' "$HOOKS" >/dev/null \
-  || fail "PostToolUse entry missing matcher: \"Bash\""
-ok "PostToolUse has Bash matcher"
+# Pre/PostToolUse should both have a Bash matcher
+for event in PreToolUse PostToolUse; do
+  jq -e --arg e "$event" '.hooks[$e][] | select(.matcher == "Bash")' "$HOOKS" >/dev/null \
+    || fail "$event entry missing matcher: \"Bash\""
+done
+ok "PreToolUse + PostToolUse have Bash matcher"
 
 # All hook commands should reference the scripts/ directory via ${CLAUDE_PLUGIN_ROOT}
 jq -r '.hooks | to_entries[] | .value[] | .hooks[]? | .command // empty' "$HOOKS" | \

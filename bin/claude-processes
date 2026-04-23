@@ -745,19 +745,29 @@ hook_post_tool_use() {
   command=$(jq -r '.tool_input.command // ""' <<< "$event" 2>/dev/null)
   # Full command retained — stash/resume needs the exact string to respawn.
 
+  # Only record DIRECT children of claude_pid as wrappers — the pids that
+  # correspond 1:1 with this Bash tool call. Their full subtree goes into
+  # child_pids. Walking all descendants (the old behavior) mis-attributed
+  # processes from an earlier tool call to whatever tool_input.command
+  # this hook fired for. E.g. `npm run dev` from call 1 looked like it
+  # came from `claude-processes list` in call 2, so stash captured the
+  # wrong command to respawn.
   local kid
   while IFS= read -r kid; do
     [ -z "$kid" ] && continue
-    # Skip if already tracked (idempotent across repeated tool calls).
     if printf '%s\n' "$existing" | grep -qFx "$kid"; then continue; fi
-    # Skip if the process is already gone by the time we got here.
     cc_is_alive "$kid" || continue
-    # Skip the hook's own process tree — defensive; shouldn't happen since
-    # hook runs synchronously under Claude, not as a descendant of a wrapper.
     [ "$kid" = "$$" ] && continue
-    cc_session_add_spawn "$session_id" "$kid" "$command" "" 2>/dev/null || true
+    # Descendants of this direct child form the subtree.
+    local kid_children=()
+    local c
+    while IFS= read -r c; do
+      [ -n "$c" ] && kid_children+=("$c")
+    done < <(cc_descendants "$kid")
+    # Expand array safely under `set -u` when empty (bash 3.2 gotcha).
+    cc_session_add_spawn "$session_id" "$kid" "$command" "" ${kid_children[@]+"${kid_children[@]}"} 2>/dev/null || true
     cc_history_append spawned "$session_id" "$kid" "$command" "" "" 2>/dev/null || true
-  done < <(cc_descendants "$claude_pid")
+  done < <(cc_children "$claude_pid")
 
   # Awareness: RAM-threshold check, emit contextual nudge if any tracked pid
   # just crossed the threshold. Rate-limited per pid.

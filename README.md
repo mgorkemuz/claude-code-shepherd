@@ -55,19 +55,19 @@ Each subcommand supports `--help`.
 
 ## Slash commands (from inside Claude)
 
-Invoke with the namespaced form `/claude-processes:<name>` (TAB-completes after `/claude-p`).
+Invoke with the namespaced form `/cc-procs:<name>` (TAB-completes after `/claude-p`).
 
 | Command | Behavior |
 |---|---|
-| `/claude-processes:processes [args]` | Run `list`, narrate notable findings. |
-| `/claude-processes:status`           | One-line sessions/processes/orphans count. |
-| `/claude-processes:stash [args]`     | Default `--current`. Report what was stashed + RAM freed. |
-| `/claude-processes:stashes`          | Show all saved snapshots (table). |
-| `/claude-processes:unstash [stash_id]`| Default `--latest --attach`. Respawn in original cwd, attach to current session. |
-| `/claude-processes:adopt <pid> [label]`| Register an externally-spawned pid as tracked (survived a Claude restart, started outside Claude, etc). |
-| `/claude-processes:rm [args]`        | Default `--latest`. Delete a stash without resuming. |
-| `/claude-processes:kill [args]`      | Terminate by pid / `--session` / `--orphans`. |
-| `/claude-processes:cleanup [args]`   | Default `--dry-run --older-than 24h`. |
+| `/cc-procs:processes [args]` | Run `list`, narrate notable findings. |
+| `/cc-procs:status`           | One-line sessions/processes/orphans count. |
+| `/cc-procs:stash [args]`     | Default `--current`. Report what was stashed + RAM freed. |
+| `/cc-procs:stashes`          | Show all saved snapshots (table). |
+| `/cc-procs:unstash [stash_id]`| Default `--latest --attach`. Respawn in original cwd, attach to current session. |
+| `/cc-procs:adopt <pid> [label]`| Register an externally-spawned pid as tracked (survived a Claude restart, started outside Claude, etc). |
+| `/cc-procs:rm [args]`        | Default `--latest`. Delete a stash without resuming. |
+| `/cc-procs:kill [args]`      | Terminate by pid / `--session` / `--orphans`. |
+| `/cc-procs:cleanup [args]`   | Default `--dry-run --older-than 24h`. |
 
 ## Config
 

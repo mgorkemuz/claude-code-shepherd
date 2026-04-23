@@ -42,7 +42,7 @@ Requires `jq`. macOS and Linux supported.
 |---|---|
 | `claude-processes list [--session <id>] [--orphans]` | Tracked processes, grouped. |
 | `claude-processes status` | One-line summary. |
-| `claude-processes kill <pid \| --session <id> \| --orphans> [--grace <sec>]` | Terminate a tree; logs to history. |
+| `claude-processes kill <pid \| --session <id> \| --orphans \| --all> [--grace <sec>]` | Terminate a tree; logs to history. |
 | `claude-processes stash <pid \| --session <id> \| --current>` | Snapshot + kill. Frees RAM and ports. |
 | `claude-processes stash list` | Show stashes with cwd, command, timestamp. |
 | `claude-processes unstash <stash_id> [--attach]` | Respawn in the original cwd. `--attach` registers the new pid with the current session. |

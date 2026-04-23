@@ -237,6 +237,7 @@ cmd_kill() {
       --session) mode="session"; target="$2"; shift 2 ;;
       --session=*) mode="session"; target="${1#--session=}"; shift ;;
       --orphans) mode="orphans"; shift ;;
+      --all)     mode="all"; shift ;;
       --grace) grace="$2"; shift 2 ;;
       -h|--help) cc_usage_kill; return 0 ;;
       -*) echo "claude-processes kill: unknown flag: $1" >&2; return 2 ;;
@@ -295,6 +296,24 @@ cmd_kill() {
         [ -z "$(cc_session_live_pids "$id")" ] && cc_session_delete "$id"
       done < <(cc_session_list)
       ;;
+    all)
+      # Nuclear option: every tracked tree across every session.
+      local id count=0
+      while IFS= read -r id; do
+        [ -z "$id" ] && continue
+        local roots; roots=$(cc_session_all_pids "$id")
+        local p
+        while IFS= read -r p; do
+          cc_is_alive "$p" || continue
+          echo "killing $p + descendants (session $(cc_short_id "$id"))..."
+          cc_kill_tree "$p" "$grace" || rc=1
+          cc_history_append killed "$id" "$p" "" "user-kill-all" "" 2>/dev/null || true
+          count=$((count + 1))
+        done <<< "$roots"
+        [ -z "$(cc_session_live_pids "$id")" ] && cc_session_delete "$id"
+      done < <(cc_session_list)
+      echo "killed $count tracked process tree(s)"
+      ;;
   esac
   return $rc
 }
@@ -305,6 +324,8 @@ Usage:
   claude-processes kill <pid>            Kill one process and its descendants.
   claude-processes kill --session <id>   Kill all tracked processes for a session.
   claude-processes kill --orphans        Kill every orphaned process tree.
+  claude-processes kill --all            Kill every tracked process tree in
+                                         every session (nuclear option).
 
 Options:
   --grace <seconds>  Seconds to wait after SIGTERM before SIGKILL (default 3).

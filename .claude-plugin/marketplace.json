@@ -2,11 +2,11 @@
   "version": "1.0.0",
   "plugins": [
     {
-      "name": "shepherd",
+      "name": "cc-shepherd",
       "description": "Inspect and reclaim background processes Claude Code's Bash tool leaves running. Session-scoped tracking, stash/resume, RAM and port awareness, surgical kill.",
       "source": {
         "source": "github",
-        "repo": "mgorkemuz/shepherd"
+        "repo": "mgorkemuz/cc-shepherd"
       }
     }
   ]

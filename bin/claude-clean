@@ -64,6 +64,8 @@ CC_ROOT=$(cc_find_root) || {
 . "$CC_ROOT/lib/portparse.sh"
 # shellcheck source=/dev/null
 . "$CC_ROOT/lib/awareness.sh"
+# shellcheck source=/dev/null
+. "$CC_ROOT/lib/units.sh"
 
 # ---- helpers ----------------------------------------------------------------
 
@@ -306,6 +308,211 @@ Usage:
 
 Options:
   --grace <seconds>  Seconds to wait after SIGTERM before SIGKILL (default 3).
+EOF
+}
+
+# ---- subcommand: cleanup ---------------------------------------------------
+
+cmd_cleanup() {
+  local older_than="" over_ram="" dry_run=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --older-than)   older_than="$2"; shift 2 ;;
+      --older-than=*) older_than="${1#--older-than=}"; shift ;;
+      --over-ram)     over_ram="$2"; shift 2 ;;
+      --over-ram=*)   over_ram="${1#--over-ram=}"; shift ;;
+      --dry-run)      dry_run=1; shift ;;
+      -h|--help)      cc_usage_cleanup; return 0 ;;
+      *) echo "claude-clean cleanup: unknown arg: $1" >&2; return 2 ;;
+    esac
+  done
+
+  if [ -z "$older_than" ] && [ -z "$over_ram" ]; then cc_usage_cleanup; return 2; fi
+
+  local age_secs=0 ram_kb=0
+  if [ -n "$older_than" ]; then
+    age_secs=$(cc_parse_duration "$older_than")
+    [ -z "$age_secs" ] && { echo "bad --older-than: $older_than" >&2; return 2; }
+  fi
+  if [ -n "$over_ram" ]; then
+    ram_kb=$(cc_parse_ram_size "$over_ram")
+    [ -z "$ram_kb" ] && { echo "bad --over-ram: $over_ram" >&2; return 2; }
+  fi
+
+  cc_have_jq || { echo "jq required" >&2; return 1; }
+  cc_config_init
+
+  local matches=()
+  local s
+  while IFS= read -r s; do
+    [ -z "$s" ] && continue
+    local pids; pids=$(cc_session_live_pids "$s")
+    [ -z "$pids" ] && continue
+    local p
+    while IFS= read -r p; do
+      [ -z "$p" ] && continue
+      local info; info=$(cc_process_info "$p")
+      [ -z "$info" ] && continue
+      local rss etime
+      IFS=$'\t' read -r _ _ rss etime _ <<< "$info"
+      local process_secs; process_secs=$(cc_etime_to_seconds "$etime")
+      local keep=1
+      [ "$age_secs" -gt 0 ] && { [ -z "$process_secs" ] && keep=0; [ -n "$process_secs" ] && [ "$process_secs" -lt "$age_secs" ] && keep=0; }
+      [ "$ram_kb" -gt 0 ] && [ "$rss" -lt "$ram_kb" ] && keep=0
+      [ "$keep" -eq 1 ] && matches+=("$s|$p|$rss|$etime")
+    done <<< "$pids"
+  done < <(cc_session_list)
+
+  if [ "${#matches[@]}" -eq 0 ]; then
+    echo "no processes match the filters"
+    return 0
+  fi
+
+  echo "matching processes:"
+  local m
+  for m in "${matches[@]}"; do
+    local ss pp rr ee
+    IFS='|' read -r ss pp rr ee <<< "$m"
+    local cmd; cmd=$(ps -o command= -p "$pp" 2>/dev/null | head -c 60 | sed 's/^ *//')
+    printf '  %s  pid %-6s  %-7s  %-5s  %s\n' \
+      "$(cc_short_id "$ss")" "$pp" \
+      "$(cc_format_rss "$rr")" "$(cc_format_etime "$ee")" "$cmd"
+  done
+  echo
+
+  if [ "$dry_run" -eq 1 ]; then
+    echo "(dry-run — nothing killed)"
+    return 0
+  fi
+
+  if [ -r /dev/tty ]; then
+    printf 'kill these %d process tree(s)? [y/N] ' "${#matches[@]}" > /dev/tty
+    local ans; read -r ans < /dev/tty
+    case "$ans" in y|Y|yes|YES) ;; *) echo "aborted"; return 0 ;; esac
+  else
+    echo "no tty — refusing to kill unconfirmed. Re-run with --dry-run, or with a tty." >&2
+    return 1
+  fi
+
+  local grace; grace=$(cc_config_get '.kill.grace_seconds' 3)
+  local reason="cleanup"
+  [ -n "$older_than" ] && reason="cleanup-older-${older_than}"
+  [ -n "$over_ram"   ] && reason="${reason}-overram-${over_ram}"
+  local killed=0
+  for m in "${matches[@]}"; do
+    local ss pp rr
+    IFS='|' read -r ss pp rr _ <<< "$m"
+    cc_is_alive "$pp" || continue
+    echo "killing $pp ($(cc_short_id "$ss"))..."
+    cc_kill_tree "$pp" "$grace" || true
+    cc_history_append killed "$ss" "$pp" "" "$reason" "$rr" 2>/dev/null || true
+    killed=$((killed + 1))
+  done
+  echo "killed $killed process tree(s)"
+}
+
+cc_usage_cleanup() {
+  cat <<'EOF'
+Usage:
+  claude-clean cleanup --older-than <dur>   Kill tracked processes older than <dur>.
+  claude-clean cleanup --over-ram <size>    Kill tracked processes using > <size> RAM.
+  claude-clean cleanup --older-than <dur> --over-ram <size> --dry-run
+
+<dur>  30s | 15m | 4h | 2d | N (seconds)
+<size> 512KB | 2MB | 4GB | N (KB)
+
+Prompts for y/N on TTY before killing. --dry-run previews the match.
+EOF
+}
+
+# ---- subcommand: digest ----------------------------------------------------
+
+cmd_digest() {
+  local since="7d"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --since)   since="$2"; shift 2 ;;
+      --since=*) since="${1#--since=}"; shift ;;
+      -h|--help) cc_usage_digest; return 0 ;;
+      *) echo "claude-clean digest: unknown arg: $1" >&2; return 2 ;;
+    esac
+  done
+
+  cc_have_jq || { echo "jq required" >&2; return 1; }
+  cc_config_init
+
+  local enabled; enabled=$(cc_config_get '.digest.enabled' false)
+  if [ "$enabled" != "true" ]; then
+    cat <<EOF
+claude-clean digest is opt-in. Turn it on with:
+
+  jq '.digest.enabled = true' ~/.claude/.clean/config.json > /tmp/c && \\
+      mv /tmp/c ~/.claude/.clean/config.json
+
+Then:  claude-clean digest --since 7d
+EOF
+    return 0
+  fi
+
+  local since_secs; since_secs=$(cc_parse_duration "$since")
+  [ -z "$since_secs" ] && { echo "bad --since: $since" >&2; return 2; }
+
+  # BSD date (macOS) vs GNU date (Linux) — try both.
+  local cutoff
+  cutoff=$(date -u -v "-${since_secs}S" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+           || date -u -d "-$since_secs seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
+  [ -z "$cutoff" ] && { echo "unable to compute cutoff timestamp" >&2; return 1; }
+
+  local h; h=$(cc_history_file)
+  local files=()
+  [ -f "$h"         ] && files+=("$h")
+  [ -f "${h}.old"   ] && files+=("${h}.old")
+  if [ "${#files[@]}" -eq 0 ]; then
+    echo "no history yet at $h"
+    return 0
+  fi
+
+  local stats
+  stats=$(cat "${files[@]}" 2>/dev/null | \
+    jq -s --arg cutoff "$cutoff" '
+      map(select(.ts >= $cutoff))
+      | {
+          total:    length,
+          sessions: (map(.session_id) | unique | length),
+          spawned:  (map(select(.event == "spawned"))  | length),
+          killed:   (map(select(.event == "killed"))   | length),
+          orphaned: (map(select(.event == "orphaned")) | length),
+          stashed:  (map(select(.event == "stashed"))  | length),
+          resumed:  (map(select(.event == "resumed"))  | length),
+          killed_ram_kb: (map(select(.event == "killed") | .ram_kb // 0) | add // 0)
+        }')
+
+  local total; total=$(echo "$stats" | jq -r '.total')
+  if [ "$total" = "0" ]; then
+    echo "no events in the last $since"
+    return 0
+  fi
+
+  local mb; mb=$(echo "$stats" | jq -r '(.killed_ram_kb / 1024 | floor)')
+  echo "claude-clean digest (last $since):"
+  echo "$stats" | jq -r '
+    "  total events:   \(.total)",
+    "  sessions:       \(.sessions)",
+    "  spawned:        \(.spawned)",
+    "  killed:         \(.killed)",
+    "  orphaned:       \(.orphaned)",
+    "  stashed:        \(.stashed)",
+    "  resumed:        \(.resumed)"
+  '
+  echo "  RAM freed (est, from killed events with ram_kb): ${mb} MB"
+}
+
+cc_usage_digest() {
+  cat <<'EOF'
+Usage: claude-clean digest [--since <dur>]
+
+Aggregate events from ~/.claude/.clean/history.jsonl since <dur> ago.
+Opt-in via config.digest.enabled (default false).
 EOF
 }
 
@@ -616,6 +823,9 @@ Commands:
   kill --orphans                      Terminate all orphaned trees.
   stash <target>                      Snapshot + kill (see stash --help).
   unstash <id>                        Respawn a stashed process.
+  cleanup --older-than <dur>          Kill old processes (see cleanup --help).
+  cleanup --over-ram <size>           Kill RAM-heavy processes.
+  digest [--since <dur>]              Aggregate history.jsonl (opt-in).
   sessions                            List tracked session IDs.
   prompt <session_id>                 Print kill summary for one session.
   hook <event>                        Internal; called by Claude Code hooks.
@@ -636,6 +846,8 @@ main() {
     kill)     cmd_kill "$@" ;;
     stash)    cmd_stash "$@" ;;
     unstash)  cmd_unstash "$@" ;;
+    cleanup)  cmd_cleanup "$@" ;;
+    digest)   cmd_digest "$@" ;;
     prompt)   cmd_prompt "$@" ;;
     hook)     cmd_hook "$@" ;;
     sessions) cmd_sessions "$@" ;;

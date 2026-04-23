@@ -32,8 +32,8 @@ done
 ok "manifest required fields (name, version, description) present"
 
 name=$(jq -r '.name' "$MANIFEST")
-[ "$name" = "claude-processes" ] || fail "manifest.name expected 'claude-processes', got '$name'"
-ok "manifest.name = claude-processes"
+[ "$name" = "cc-procs" ] || fail "manifest.name expected 'cc-procs', got '$name'"
+ok "manifest.name = cc-procs"
 
 version=$(jq -r '.version' "$MANIFEST")
 echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+' || fail "version '$version' not semver-like"

@@ -1,5 +1,5 @@
 ---
-description: Snapshot + kill this session's background processes to free RAM. Resume later with /resume.
+description: Snapshot + kill this session's background processes to free RAM. Bring them back with /claude-processes:unstash.
 allowed-tools: Bash(claude-processes:*)
 ---
 

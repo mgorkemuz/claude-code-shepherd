@@ -10,11 +10,28 @@ Upstream: [#43944](https://github.com/anthropics/claude-code/issues/43944), [#29
 
 ## Install
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/<you>/claude-clean/main/install.sh | bash
+As a Claude Code plugin:
+
+```
+/plugin install claude-clean
 ```
 
-Or from a clone: `./install.sh`. Requires `jq`. macOS and Linux only.
+Or from a local clone, for development:
+
+```sh
+claude --plugin-dir /path/to/claude-clean
+```
+
+Requires `jq`. macOS and Linux only.
+
+### Upgrading from v0.1.0 (shell install)
+
+v0.1.0 used a shell-mode `install.sh`. v0.2.0+ ships as a plugin. If you installed v0.1.0 previously:
+
+```sh
+./uninstall.sh          # removes the shell-mode binary, hook scripts, and settings.json entries
+/plugin install claude-clean
+```
 
 ## Use
 
@@ -44,18 +61,26 @@ A note on hooks: the spec called for `PreToolUse`, but the wrapper doesn't exist
 
 ## Uninstall
 
+Plugin users:
+
+```
+/plugin uninstall claude-clean
+```
+
+v0.1.0 shell-mode users (legacy):
+
 ```sh
 ./uninstall.sh
 ```
 
-Removes the binary, the hook scripts, and the claude-clean entries in `~/.claude/settings.json` (existing backup is kept). Tracking state at `~/.claude/.clean/` is cleared unless you pass `--keep-state`.
+Either path clears tracking state at `~/.claude/.clean/` unless you pass `--keep-state`.
 
 ## Related
 
 Complementary, not competing:
-- [claude-sessions-monitor](https://github.com/) — conversation-level view: tokens, cost, messages
-- [claude-control](https://github.com/) — session remote-control
-- [Stargx/claude-code-dashboard](https://github.com/Stargx/claude-code-dashboard) — GUI overview
+- [theQuert/cc-reaper](https://github.com/theQuert/cc-reaper) — cleans up Claude's own internal leaks (MCP servers, subagents). claude-clean cleans up the processes *you* told Claude to run in the background. Safe to run side-by-side.
+- [Stargx/claude-code-dashboard](https://github.com/Stargx/claude-code-dashboard) — GUI session overview
+- claude-sessions-monitor, claude-control — conversation-level views
 
 ## Testing
 

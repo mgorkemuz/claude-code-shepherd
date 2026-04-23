@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Claude Code SessionStart hook — record session in tracking state.
-# Fails silently: hook errors must never block Claude.
+# Plugin-bundled binary first, then fallbacks for shell-mode (v0.1.0) users.
+# Errors never block Claude.
 set -u
+if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -x "${CLAUDE_PLUGIN_ROOT}/bin/claude-clean" ]; then
+  exec "${CLAUDE_PLUGIN_ROOT}/bin/claude-clean" hook session-start
+fi
 for p in "$HOME/.local/bin/claude-clean" "/usr/local/bin/claude-clean" "/opt/homebrew/bin/claude-clean"; do
   if [ -x "$p" ]; then exec "$p" hook session-start; fi
 done

@@ -3,7 +3,7 @@
 # Bash tool. See README for the full story.
 set -u
 
-CC_VERSION="0.1.0"
+CC_VERSION="0.2.0"
 
 # ---- library resolution ------------------------------------------------------
 
@@ -22,6 +22,10 @@ cc_resolve_self() {
 
 cc_find_root() {
   [ -n "${CC_ROOT:-}" ] && [ -d "$CC_ROOT/lib" ] && { echo "$CC_ROOT"; return; }
+  # Plugin-mode: Claude Code sets CLAUDE_PLUGIN_ROOT when invoking hook scripts.
+  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/lib/detect.sh" ]; then
+    ( cd "$CLAUDE_PLUGIN_ROOT" && pwd ); return
+  fi
   local bindir; bindir=$(cc_resolve_self "$0")
   local candidates=(
     "$bindir/.."

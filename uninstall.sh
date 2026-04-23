@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# claude-clean uninstaller. Removes every file install.sh put down, plus
-# tracking state. Leaves shell rc entries alone (PATH is cheap to keep).
+# claude-clean uninstaller — removes the v0.1.0 shell-mode install.
+#
+# Retained for users who ran `install.sh` before v0.2.0. v0.2.0+ ships as a
+# Claude Code plugin; remove it via `/plugin uninstall claude-clean` instead.
+# Running this script after plugin-install is safe — it only touches paths
+# this installer created (~/.local/bin/claude-clean, ~/.local/share/claude-clean,
+# ~/.claude/hooks/claude-clean) and strips matching entries from settings.json.
 set -eu
 
 PREFIX="$HOME/.local"

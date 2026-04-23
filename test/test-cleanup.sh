@@ -11,7 +11,7 @@ TMP=$(mktemp -d)
 cleanup() { set +e; rm -rf "$TMP"; return 0; }
 trap cleanup EXIT
 export HOME="$TMP"
-export CC_STATE_DIR="$TMP/.claude/.clean"
+export CC_STATE_DIR="$TMP/.claude/.processes"
 mkdir -p "$CC_STATE_DIR"
 
 . "$ROOT/lib/track.sh"
@@ -73,7 +73,7 @@ assert_et 90061     "01-01:01:01"
 
 # --- cmd_digest: seed history + verify aggregation --------------------------
 
-CLI="$ROOT/bin/claude-clean"
+CLI="$ROOT/bin/claude-processes"
 cc_config_init
 
 # Digest while disabled → should print opt-in message

@@ -1,6 +1,33 @@
 # Changelog
 
-All notable changes to claude-clean. This project follows [SemVer](https://semver.org).
+All notable changes to claude-processes (formerly claude-clean).
+This project follows [SemVer](https://semver.org).
+
+## [0.4.0] — 2026-04-23
+
+### Changed
+- **Renamed `claude-clean` → `claude-processes`.** The old name was too
+  generic for a marketplace plugin; the new one aligns with the
+  `/processes` slash command and is unambiguous (unlike `jobs`, which
+  could mean CI/queue/cron jobs).
+- Binary: `bin/claude-clean` → `bin/claude-processes`.
+- State dir: `~/.claude/.clean/` → `~/.claude/.processes/`.
+- Plugin manifest name: `claude-clean` → `claude-processes`.
+- Marketplace repo URL: updated to `gorkemuz/claude-processes`.
+
+### Migration
+
+For the handful of pre-0.4.0 users (including the v0.1.0 shell-install):
+
+```sh
+./uninstall.sh        # removes the old claude-clean shell install if present
+/plugin uninstall claude-clean   # if you ran an earlier plugin build
+/plugin install claude-processes
+```
+
+Any state under `~/.claude/.clean/` is not migrated automatically — the
+sessions tracked there were tied to long-gone Claude process IDs. Starting
+fresh is correct. Stash/history files are also not migrated.
 
 ## [0.3.0] — 2026-04-23
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# claude-clean — inspect and terminate processes spawned by Claude Code's
+# claude-processes — inspect and terminate processes spawned by Claude Code's
 # Bash tool. See README for the full story.
 set -u
 
-CC_VERSION="0.3.0"
+CC_VERSION="0.4.0"
 
 # ---- library resolution ------------------------------------------------------
 
@@ -29,10 +29,10 @@ cc_find_root() {
   local bindir; bindir=$(cc_resolve_self "$0")
   local candidates=(
     "$bindir/.."
-    "$bindir/../share/claude-clean"
-    "$HOME/.local/share/claude-clean"
-    "/usr/local/share/claude-clean"
-    "/opt/homebrew/share/claude-clean"
+    "$bindir/../share/claude-processes"
+    "$HOME/.local/share/claude-processes"
+    "/usr/local/share/claude-processes"
+    "/opt/homebrew/share/claude-processes"
   )
   local d
   for d in "${candidates[@]}"; do
@@ -42,7 +42,7 @@ cc_find_root() {
 }
 
 CC_ROOT=$(cc_find_root) || {
-  echo "claude-clean: cannot locate lib/ directory" >&2
+  echo "claude-processes: cannot locate lib/ directory" >&2
   exit 1
 }
 
@@ -108,12 +108,12 @@ cmd_list() {
       --session=*) only_session="${1#--session=}"; shift ;;
       --orphans) only_orphans=1; shift ;;
       -h|--help) cc_usage_list; return 0 ;;
-      *) echo "claude-clean list: unknown arg: $1" >&2; return 2 ;;
+      *) echo "claude-processes list: unknown arg: $1" >&2; return 2 ;;
     esac
   done
 
   cc_state_init
-  cc_have_jq || { echo "claude-clean: jq is required" >&2; return 1; }
+  cc_have_jq || { echo "claude-processes: jq is required" >&2; return 1; }
 
   local any_output=0
   local sessions
@@ -194,7 +194,7 @@ cmd_list() {
 
 cc_usage_list() {
   cat <<'EOF'
-Usage: claude-clean list [--session <id>] [--orphans]
+Usage: claude-processes list [--session <id>] [--orphans]
 
 Show Claude-spawned background processes, grouped by session. Orphans are
 processes whose originating Claude process is no longer alive.
@@ -205,7 +205,7 @@ EOF
 
 cmd_status() {
   cc_state_init
-  cc_have_jq || { echo "claude-clean: jq is required" >&2; return 1; }
+  cc_have_jq || { echo "claude-processes: jq is required" >&2; return 1; }
 
   local sessions=0 active=0 procs=0 orphans=0
   local id
@@ -239,13 +239,13 @@ cmd_kill() {
       --orphans) mode="orphans"; shift ;;
       --grace) grace="$2"; shift 2 ;;
       -h|--help) cc_usage_kill; return 0 ;;
-      -*) echo "claude-clean kill: unknown flag: $1" >&2; return 2 ;;
+      -*) echo "claude-processes kill: unknown flag: $1" >&2; return 2 ;;
       *) target="$1"; shift ;;
     esac
   done
 
   cc_state_init
-  cc_have_jq || { echo "claude-clean: jq is required" >&2; return 1; }
+  cc_have_jq || { echo "claude-processes: jq is required" >&2; return 1; }
 
   local rc=0
   case "$mode" in
@@ -302,9 +302,9 @@ cmd_kill() {
 cc_usage_kill() {
   cat <<'EOF'
 Usage:
-  claude-clean kill <pid>            Kill one process and its descendants.
-  claude-clean kill --session <id>   Kill all tracked processes for a session.
-  claude-clean kill --orphans        Kill every orphaned process tree.
+  claude-processes kill <pid>            Kill one process and its descendants.
+  claude-processes kill --session <id>   Kill all tracked processes for a session.
+  claude-processes kill --orphans        Kill every orphaned process tree.
 
 Options:
   --grace <seconds>  Seconds to wait after SIGTERM before SIGKILL (default 3).
@@ -323,7 +323,7 @@ cmd_cleanup() {
       --over-ram=*)   over_ram="${1#--over-ram=}"; shift ;;
       --dry-run)      dry_run=1; shift ;;
       -h|--help)      cc_usage_cleanup; return 0 ;;
-      *) echo "claude-clean cleanup: unknown arg: $1" >&2; return 2 ;;
+      *) echo "claude-processes cleanup: unknown arg: $1" >&2; return 2 ;;
     esac
   done
 
@@ -414,9 +414,9 @@ cmd_cleanup() {
 cc_usage_cleanup() {
   cat <<'EOF'
 Usage:
-  claude-clean cleanup --older-than <dur>   Kill tracked processes older than <dur>.
-  claude-clean cleanup --over-ram <size>    Kill tracked processes using > <size> RAM.
-  claude-clean cleanup --older-than <dur> --over-ram <size> --dry-run
+  claude-processes cleanup --older-than <dur>   Kill tracked processes older than <dur>.
+  claude-processes cleanup --over-ram <size>    Kill tracked processes using > <size> RAM.
+  claude-processes cleanup --older-than <dur> --over-ram <size> --dry-run
 
 <dur>  30s | 15m | 4h | 2d | N (seconds)
 <size> 512KB | 2MB | 4GB | N (KB)
@@ -434,7 +434,7 @@ cmd_digest() {
       --since)   since="$2"; shift 2 ;;
       --since=*) since="${1#--since=}"; shift ;;
       -h|--help) cc_usage_digest; return 0 ;;
-      *) echo "claude-clean digest: unknown arg: $1" >&2; return 2 ;;
+      *) echo "claude-processes digest: unknown arg: $1" >&2; return 2 ;;
     esac
   done
 
@@ -444,12 +444,12 @@ cmd_digest() {
   local enabled; enabled=$(cc_config_get '.digest.enabled' false)
   if [ "$enabled" != "true" ]; then
     cat <<EOF
-claude-clean digest is opt-in. Turn it on with:
+claude-processes digest is opt-in. Turn it on with:
 
   jq '.digest.enabled = true' ~/.claude/.clean/config.json > /tmp/c && \\
       mv /tmp/c ~/.claude/.clean/config.json
 
-Then:  claude-clean digest --since 7d
+Then:  claude-processes digest --since 7d
 EOF
     return 0
   fi
@@ -494,7 +494,7 @@ EOF
   fi
 
   local mb; mb=$(echo "$stats" | jq -r '(.killed_ram_kb / 1024 | floor)')
-  echo "claude-clean digest (last $since):"
+  echo "claude-processes digest (last $since):"
   echo "$stats" | jq -r '
     "  total events:   \(.total)",
     "  sessions:       \(.sessions)",
@@ -509,7 +509,7 @@ EOF
 
 cc_usage_digest() {
   cat <<'EOF'
-Usage: claude-clean digest [--since <dur>]
+Usage: claude-processes digest [--since <dur>]
 
 Aggregate events from ~/.claude/.clean/history.jsonl since <dur> ago.
 Opt-in via config.digest.enabled (default false).
@@ -529,12 +529,12 @@ cmd_stash() {
       --session=*) mode="session"; target="${1#--session=}"; shift ;;
       --current)   mode="current"; shift ;;
       -h|--help)   cc_usage_stash; return 0 ;;
-      -*) echo "claude-clean stash: unknown flag: $1" >&2; return 2 ;;
+      -*) echo "claude-processes stash: unknown flag: $1" >&2; return 2 ;;
       *)  mode="pid"; target="$1"; shift ;;
     esac
   done
 
-  cc_have_jq || { echo "claude-clean: jq required" >&2; return 1; }
+  cc_have_jq || { echo "claude-processes: jq required" >&2; return 1; }
   cc_config_init
 
   local ids=()
@@ -573,7 +573,7 @@ cmd_stash() {
   if [ "${#ids[@]}" -gt 0 ]; then
     echo "stashed ${#ids[@]} process tree(s):"
     printf '  %s\n' "${ids[@]}"
-    echo "resume with: claude-clean unstash <stash_id>"
+    echo "resume with: claude-processes unstash <stash_id>"
   else
     echo "nothing stashed"
   fi
@@ -585,39 +585,39 @@ cmd_unstash() {
     case "$1" in
       --attach) attach="--attach"; shift ;;
       -h|--help) cc_usage_unstash; return 0 ;;
-      -*) echo "claude-clean unstash: unknown flag: $1" >&2; return 2 ;;
+      -*) echo "claude-processes unstash: unknown flag: $1" >&2; return 2 ;;
       *) target="$1"; shift ;;
     esac
   done
 
   [ -z "$target" ] && { cc_usage_unstash; return 2; }
-  cc_have_jq || { echo "claude-clean: jq required" >&2; return 1; }
+  cc_have_jq || { echo "claude-processes: jq required" >&2; return 1; }
 
   local new_pid; new_pid=$(cc_respawn "$target" "$attach") || return 1
   echo "resumed: pid $new_pid"
   [ -n "$attach" ] && echo "attached to current session"
-  echo "logs: /tmp/claude-clean-${target}.log"
+  echo "logs: /tmp/claude-processes-${target}.log"
 }
 
 cc_usage_stash() {
   cat <<'EOF'
 Usage:
-  claude-clean stash <pid>               Stash a specific pid + descendants.
-  claude-clean stash --session <id>      Stash all processes of a session.
-  claude-clean stash --current           Stash this Claude session's processes.
-  claude-clean stash list                Show available snapshots.
+  claude-processes stash <pid>               Stash a specific pid + descendants.
+  claude-processes stash --session <id>      Stash all processes of a session.
+  claude-processes stash --current           Stash this Claude session's processes.
+  claude-processes stash list                Show available snapshots.
 
 Stash snapshots command, cwd, and allowlisted env vars to
 ~/.claude/.clean/stashed/<id>.json, then kills the tree. Resume later with
-`claude-clean unstash <id>`.
+`claude-processes unstash <id>`.
 EOF
 }
 
 cc_usage_unstash() {
   cat <<'EOF'
 Usage:
-  claude-clean unstash <stash_id>              Respawn in original cwd.
-  claude-clean unstash <stash_id> --attach     Also register with the
+  claude-processes unstash <stash_id>              Respawn in original cwd.
+  claude-processes unstash <stash_id> --attach     Also register with the
                                                  current Claude session.
 EOF
 }
@@ -626,9 +626,9 @@ EOF
 
 cmd_prompt() {
   local id="$1"
-  [ -z "$id" ] && { echo "claude-clean prompt: session id required" >&2; return 2; }
+  [ -z "$id" ] && { echo "claude-processes prompt: session id required" >&2; return 2; }
   cc_state_init
-  cc_have_jq || { echo "claude-clean: jq is required" >&2; return 1; }
+  cc_have_jq || { echo "claude-processes: jq is required" >&2; return 1; }
 
   local live_pids; live_pids=$(cc_session_live_pids "$id")
   if [ -z "$live_pids" ]; then
@@ -647,10 +647,10 @@ cmd_prompt() {
     read -r ans < /dev/tty
     case "$ans" in
       y|Y|yes|YES) cmd_kill --session "$id" ;;
-      *) echo "leaving them alive. Run: claude-clean list    to see them later." ;;
+      *) echo "leaving them alive. Run: claude-processes list    to see them later." ;;
     esac
   else
-    echo "(no tty — skipping confirmation; run 'claude-clean kill --session $id' to terminate)"
+    echo "(no tty — skipping confirmation; run 'claude-processes kill --session $id' to terminate)"
   fi
 }
 
@@ -667,8 +667,8 @@ cmd_hook() {
     pre-tool-use)  hook_pre_tool_use  "$@" ;;
     post-tool-use) hook_post_tool_use "$@" ;;
     stop)          hook_stop          "$@" ;;
-    '') echo "claude-clean hook: subcommand required (session-start|pre-tool-use|post-tool-use|stop)" >&2; return 2 ;;
-    *) echo "claude-clean hook: unknown sub: $sub" >&2; return 2 ;;
+    '') echo "claude-processes hook: subcommand required (session-start|pre-tool-use|post-tool-use|stop)" >&2; return 2 ;;
+    *) echo "claude-processes hook: unknown sub: $sub" >&2; return 2 ;;
   esac
 }
 
@@ -786,12 +786,12 @@ hook_stop() {
   # Stop hooks don't have TTY access in Claude Code, so we print a summary
   # and the exact kill command instead of prompting. Claude renders stdout.
   echo ""
-  echo "[claude-clean] Session ended with background processes still running:"
+  echo "[claude-processes] Session ended with background processes still running:"
   local p
   while IFS= read -r p; do cc_print_process_line "$p"; done <<< "$live_pids"
   echo ""
-  echo "To kill them:   claude-clean kill --session $session_id"
-  echo "To see others:  claude-clean list"
+  echo "To kill them:   claude-processes kill --session $session_id"
+  echo "To see others:  claude-processes list"
   return 0
 }
 
@@ -813,7 +813,7 @@ cmd_sessions() {
 
 cc_usage() {
   cat <<EOF
-claude-clean $CC_VERSION — inspect and kill Claude-spawned background processes.
+claude-processes $CC_VERSION — inspect and kill Claude-spawned background processes.
 
 Commands:
   list [--session <id>] [--orphans]   Show tracked processes.
@@ -833,7 +833,7 @@ Commands:
 
 Files:
   Tracking state:  ~/.claude/.clean/<session>.json
-  Hook scripts:    ~/.claude/hooks/claude-clean/
+  Hook scripts:    ~/.claude/hooks/claude-processes/
 EOF
 }
 
@@ -851,9 +851,9 @@ main() {
     prompt)   cmd_prompt "$@" ;;
     hook)     cmd_hook "$@" ;;
     sessions) cmd_sessions "$@" ;;
-    version|-v|--version) echo "claude-clean $CC_VERSION" ;;
+    version|-v|--version) echo "claude-processes $CC_VERSION" ;;
     help|-h|--help) cc_usage ;;
-    *) echo "claude-clean: unknown command: $cmd" >&2; cc_usage >&2; exit 2 ;;
+    *) echo "claude-processes: unknown command: $cmd" >&2; cc_usage >&2; exit 2 ;;
   esac
 }
 

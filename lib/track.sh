@@ -134,6 +134,28 @@ cc_session_live_pids() {
   } | awk 'NF && !seen[$0]++'
 }
 
+# cc_latest_tracked_pid
+# Echo the wrapper_pid of the most recently spawned entry across all sessions
+# that is still alive. Empty when nothing is tracked.
+cc_latest_tracked_pid() {
+  command -v jq >/dev/null 2>&1 || return 0
+  local best_ts="" best_pid=""
+  local s
+  while IFS= read -r s; do
+    [ -z "$s" ] && continue
+    local f; f=$(cc_session_file "$s")
+    [ -f "$f" ] || continue
+    while IFS=$'\t' read -r ts p; do
+      [ -z "$p" ] && continue
+      cc_is_alive "$p" || continue
+      if [ -z "$best_ts" ] || [ "$ts" \> "$best_ts" ]; then
+        best_ts="$ts"; best_pid="$p"
+      fi
+    done < <(jq -r '.spawned[]? | "\(.started_at)\t\(.wrapper_pid)"' "$f" 2>/dev/null)
+  done < <(cc_session_list)
+  [ -n "$best_pid" ] && echo "$best_pid"
+}
+
 # cc_session_all_pids <session_id>
 # Echo every tracked PID for a session — both wrapper PIDs and child PIDs —
 # one per line. Used by `kill --session`.
